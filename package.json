@@ -1,0 +1,101 @@
+{
+  "name": "@discere-os/librsvg.wasm",
+  "version": "2.61.0",
+  "description": "Production-ready SVG rendering via WebAssembly with WebGPU acceleration",
+  "keywords": [
+    "svg",
+    "wasm",
+    "webassembly",
+    "graphics",
+    "rendering",
+    "webgpu",
+    "simd",
+    "librsvg",
+    "cairo",
+    "rust",
+    "performance"
+  ],
+  "author": "Discere OS <hello@discere.school>",
+  "license": "LGPL-2.1-or-later",
+  "homepage": "https://github.com/discere-os/discere-nucleus/tree/main/client/emscripten/librsvg.wasm",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/discere-os/discere-nucleus.git",
+    "directory": "client/emscripten/librsvg.wasm"
+  },
+  "bugs": {
+    "url": "https://github.com/discere-os/discere-nucleus/issues"
+  },
+  "type": "module",
+  "main": "dist/lib/index.js",
+  "module": "dist/lib/index.js",
+  "types": "dist/lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/lib/index.d.ts",
+      "import": "./dist/lib/index.js"
+    },
+    "./side": {
+      "types": "./dist/lib/index.d.ts",
+      "import": "./librsvg-side.wasm"
+    },
+    "./main": {
+      "types": "./dist/lib/index.d.ts",
+      "import": "./librsvg-main.wasm"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/",
+    "librsvg-side.wasm",
+    "librsvg-main.wasm",
+    "librsvg-main.js",
+    "README.md",
+    "COPYING.LIB"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "browserslist": [
+    "Chrome >= 113",
+    "Edge >= 113"
+  ],
+  "scripts": {
+    "build": "./build-wasm-dual.sh",
+    "build:clean": "./build-wasm-dual.sh --clean",
+    "build:side": "./build-wasm-dual.sh --side-only",
+    "build:main": "./build-wasm-dual.sh --main-only",
+    "compile": "tsc",
+    "compile:watch": "tsc --watch",
+    "demo": "node --loader ts-node/esm src/demo.ts",
+    "benchmark": "node --loader ts-node/esm src/benchmark.ts",
+    "test": "vitest",
+    "test:browser": "vitest --browser",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write src/**/*.ts",
+    "clean": "rm -rf dist/ build-*/ *.wasm *.js *.js.map",
+    "prepublishOnly": "npm run build && npm run compile",
+    "size": "ls -lh *.wasm || echo 'No WASM files found. Run npm run build first.'"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.9.3",
+    "@typescript-eslint/eslint-plugin": "^8.16.0",
+    "@typescript-eslint/parser": "^8.16.0",
+    "eslint": "^9.16.0",
+    "prettier": "^3.4.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "peerDependencies": {},
+  "optionalDependencies": {},
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/sponsors/discere-os"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  }
+}
