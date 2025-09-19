@@ -170,6 +170,7 @@ export interface SVGLoadingOptions {
   retryCount?: number
   useCache?: boolean
   maxFileSizeMB?: number
+  forceMainModule?: boolean  // Force MAIN_MODULE even if orchestrator available
 }
 
 // Error classes
@@ -207,4 +208,29 @@ export interface SVGPerformanceMetrics {
   memoryUsage: number
   simdUtilization: number
   webgpuUtilization: number
+}
+
+// Orchestrator types for SIDE_MODULE loading
+export interface WebGPUOrchestrator {
+  loadSideModule(config: {
+    name: string
+    url: string
+    dependencies?: string[]
+    priority?: number
+  }): Promise<Function>
+  shareDevice?: boolean
+  requestComputeContext?: Function
+}
+
+// Global module extensions
+declare global {
+  interface Window {
+    Module?: {
+      externalWebGPUContext?: WebGPUOrchestrator
+    }
+  }
+
+  var Module: {
+    externalWebGPUContext?: WebGPUOrchestrator
+  } | undefined
 }

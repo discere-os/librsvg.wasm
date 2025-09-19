@@ -355,6 +355,55 @@ export class LibRSVG {
   }
 
   private async loadModuleFactory(): Promise<Function> {
+    // Check if we should use SIDE_MODULE with orchestrator
+    if (this.shouldUseSideModule()) {
+      return this.loadSideModuleViaOrchestrator()
+    }
+
+    // Fallback to MAIN_MODULE loading
+    return this.loadMainModuleFactory()
+  }
+
+  private shouldUseSideModule(): boolean {
+    // Use SIDE_MODULE if:
+    // 1. External orchestrator is available
+    // 2. We're running in production (not Deno development)
+    // 3. User hasn't explicitly requested MAIN_MODULE
+    return typeof globalThis.Module?.externalWebGPUContext !== 'undefined' &&
+           typeof globalThis.Deno === 'undefined' &&
+           !this.loadingOptions.forceMainModule
+  }
+
+  private async loadSideModuleViaOrchestrator(): Promise<Function> {
+    // Request SIDE_MODULE loading from the orchestrator
+    const orchestrator = globalThis.Module?.externalWebGPUContext
+
+    if (!orchestrator?.loadSideModule) {
+      throw new Error('Orchestrator does not support SIDE_MODULE loading')
+    }
+
+    try {
+      // Request librsvg SIDE_MODULE from CDN
+      const sideModule = await orchestrator.loadSideModule({
+        name: 'librsvg',
+        url: 'https://wasm.discere.cloud/librsvg/latest/side/librsvg-side.wasm',
+        dependencies: [
+          'https://wasm.discere.cloud/cairo/latest/side/cairo-side.wasm',
+          'https://wasm.discere.cloud/glib/latest/side/glib-side.wasm',
+          'https://wasm.discere.cloud/pango/latest/side/pango-side.wasm',
+          'https://wasm.discere.cloud/gdk-pixbuf/latest/side/gdk-pixbuf-side.wasm'
+        ],
+        priority: 1 // Normal priority
+      })
+
+      return sideModule
+    } catch (error) {
+      console.warn('SIDE_MODULE loading failed, falling back to MAIN_MODULE:', error)
+      return this.loadMainModuleFactory()
+    }
+  }
+
+  private async loadMainModuleFactory(): Promise<Function> {
     // Deno-first development environment
     if (typeof globalThis.Deno !== 'undefined') {
       try {

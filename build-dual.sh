@@ -32,7 +32,7 @@ log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 log_error() { echo -e "${RED}❌ $1${NC}"; exit 1; }
 log_section() { echo -e "${PURPLE}🔥 $1${NC}"; echo -e "${PURPLE}$(printf '=%.0s' {1..50})${NC}"; }
 
-# Check prerequisites
+# Check prerequisites and build dependencies if needed
 check_prerequisites() {
     log_section "Checking Prerequisites"
 
@@ -41,22 +41,54 @@ check_prerequisites() {
         log_error "Emscripten not found. Please install and source emsdk_env.sh"
     fi
 
-    # Check for potential dependencies
-    if [ -d "../cairo.wasm" ] && [ -f "../cairo.wasm/install/wasm/cairo-side.wasm" ]; then
-        log_info "Cairo dependency found: ../cairo.wasm/"
-    else
-        log_warning "Cairo dependency not found - using system Cairo"
-    fi
-
-    if [ -d "../glib.wasm" ] && [ -f "../glib.wasm/install/wasm/glib-side.wasm" ]; then
-        log_info "GLib dependency found: ../glib.wasm/"
-    else
-        log_warning "GLib dependency not found - using system GLib"
-    fi
-
     local emcc_version=$(emcc --version | head -n1 | grep -o '[0-9.]*')
     log_info "Emscripten version: $emcc_version"
+
+    # Check and build required dependencies
+    check_and_build_dependency "cairo.wasm" "Cairo graphics library"
+    check_and_build_dependency "glib.wasm" "GLib utility library"
+    check_and_build_dependency "pango.wasm" "Pango text rendering"
+    check_and_build_dependency "gdk-pixbuf.wasm" "GdkPixbuf image loading"
+    check_and_build_dependency "librsvg" "LibRSVG Rust core" "optional"
+
     log_success "Prerequisites verified"
+}
+
+# Check and build individual dependency
+check_and_build_dependency() {
+    local dep_name="$1"
+    local description="$2"
+    local optional="${3:-required}"
+    local dep_dir="../${dep_name}"
+
+    if [ -d "$dep_dir" ]; then
+        # Check if dependency is built
+        if [ -f "${dep_dir}/install/wasm/${dep_name%-*}-side.wasm" ] &&
+           [ -f "${dep_dir}/install/lib/lib${dep_name%-*}.a" ]; then
+            log_info "${description} found: ${dep_dir}/"
+        else
+            log_info "Building ${description}..."
+            cd "$dep_dir"
+            if [ -f "build-dual.sh" ]; then
+                ./build-dual.sh --skip-checks || {
+                    if [ "$optional" = "required" ]; then
+                        log_error "Failed to build required dependency: ${dep_name}"
+                    else
+                        log_warning "Failed to build optional dependency: ${dep_name}"
+                    fi
+                }
+            else
+                log_warning "No build script found for ${dep_name}"
+            fi
+            cd "$SCRIPT_DIR"
+        fi
+    else
+        if [ "$optional" = "required" ]; then
+            log_error "Required dependency not found: ${dep_dir}/"
+        else
+            log_warning "Optional dependency not found: ${dep_dir}/"
+        fi
+    fi
 }
 
 # Clean build artifacts
@@ -73,10 +105,11 @@ build_side_module() {
 
     mkdir -p build-dual-side install/wasm
 
-    # Compile C integration layer as SIDE_MODULE
+    # Compile C integration layer as SIDE_MODULE with dynamic loading
     emcc wasm/librsvg-wasm-integration.c \
         wasm/librsvg-wasm-simd-optimizations.c \
         -O3 -flto -msimd128 \
+        -DLIBRSVG_SIDE_MODULE=1 \
         -sSIDE_MODULE=2 \
         -sEXPORTED_FUNCTIONS='["_rsvg_wasm_init","_rsvg_wasm_render_to_rgba","_rsvg_wasm_get_svg_info","_rsvg_wasm_set_viewport","_rsvg_wasm_get_simd_support","_rsvg_wasm_enable_webgpu","_rsvg_wasm_get_last_error","_rsvg_wasm_cleanup"]' \
         -fPIC \
@@ -90,26 +123,50 @@ build_side_module() {
     fi
 }
 
-# Build MAIN_MODULE for testing and NPM
+# Build MAIN_MODULE for testing and NPM (with static dependencies)
 build_main_module() {
     log_section "Building MAIN_MODULE (Testing/NPM)"
 
     mkdir -p build-dual-main install/wasm
 
-    # Compile C integration layer as MAIN_MODULE
+    # Collect static libraries from our dependency forks
+    local static_libs=""
+    local include_dirs=""
+
+    # Add dependency static libraries in correct linking order
+    for dep in cairo glib gdk-pixbuf pango; do
+        local dep_dir="../${dep}.wasm"
+        if [ -f "${dep_dir}/install/lib/lib${dep}.a" ]; then
+            static_libs="${static_libs} ${dep_dir}/install/lib/lib${dep}.a"
+            include_dirs="${include_dirs} -I${dep_dir}/install/include"
+            log_info "Static linking: lib${dep}.a"
+        else
+            log_warning "Static library not found: lib${dep}.a (will use system version)"
+        fi
+    done
+
+    # Additional system libraries required by Cairo/Pango (commented out for stub testing)
+    # local system_libs="-lpixman-1 -lfreetype -lharfbuzz -lfribidi -lxml2 -lz -lm"
+    local system_libs=""
+
+    # Compile C integration layer as MAIN_MODULE with static dependencies
     emcc wasm/librsvg-wasm-integration.c \
         wasm/librsvg-wasm-simd-optimizations.c \
+        ${static_libs} \
+        ${include_dirs} \
+        ${system_libs} \
         -O3 -flto -msimd128 \
         -sMODULARIZE=1 \
         -sEXPORT_ES6=1 \
         -sEXPORT_NAME="LibRSVGModule" \
         -sSINGLE_FILE=0 \
         -sALLOW_MEMORY_GROWTH=1 \
-        -sINITIAL_MEMORY=67108864 \
-        -sMAXIMUM_MEMORY=536870912 \
+        -sINITIAL_MEMORY=134217728 \
+        -sMAXIMUM_MEMORY=1073741824 \
         -sENVIRONMENT=web,webview,worker \
         -sNODEJS_CATCH_EXIT=0 \
         -sNODEJS_CATCH_REJECTION=0 \
+        -sFORCE_FILESYSTEM=1 \
         -sEXPORTED_FUNCTIONS='["_malloc","_free","_rsvg_wasm_init","_rsvg_wasm_render_to_rgba","_rsvg_wasm_get_svg_info","_rsvg_wasm_set_viewport","_rsvg_wasm_get_simd_support","_rsvg_wasm_enable_webgpu","_rsvg_wasm_get_last_error","_rsvg_wasm_cleanup"]' \
         -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringToUTF8"]' \
         -o install/wasm/librsvg-main.js

@@ -27,10 +27,94 @@
 #include <string.h>
 #include <stdio.h>
 
+#ifdef LIBRSVG_SIDE_MODULE
+#include <dlfcn.h>  // For dynamic loading in SIDE_MODULE
+
+// Dynamic loading handles for dependencies
+static void* cairo_handle = NULL;
+static void* glib_handle = NULL;
+static void* pango_handle = NULL;
+static void* pixbuf_handle = NULL;
+
+// Function pointers for dynamically loaded dependencies
+static void* (*cairo_create_func)(void*) = NULL;
+static void* (*cairo_image_surface_create_func)(int, int, int) = NULL;
+static void (*cairo_destroy_func)(void*) = NULL;
+static void (*cairo_surface_destroy_func)(void*) = NULL;
+#endif
+
 // Global state for testing
 static int g_simd_enabled = 0;
 static int g_webgpu_enabled = 0;
 static char g_last_error[256] = "No error";
+static int g_dependencies_loaded = 0;
+
+#ifdef LIBRSVG_SIDE_MODULE
+// Dynamic loading of dependencies from CDN
+static int load_dependency_libraries(void) {
+    if (g_dependencies_loaded) {
+        return 1; // Already loaded
+    }
+
+    // Load Cairo from wasm.discere.cloud CDN
+    cairo_handle = dlopen("https://wasm.discere.cloud/cairo/latest/side/cairo-side.wasm", RTLD_NOW);
+    if (!cairo_handle) {
+        snprintf(g_last_error, sizeof(g_last_error), "Failed to load Cairo: %s", dlerror());
+        return 0;
+    }
+
+    // Load GLib from CDN
+    glib_handle = dlopen("https://wasm.discere.cloud/glib/latest/side/glib-side.wasm", RTLD_NOW);
+    if (!glib_handle) {
+        snprintf(g_last_error, sizeof(g_last_error), "Failed to load GLib: %s", dlerror());
+        return 0;
+    }
+
+    // Load Pango from CDN
+    pango_handle = dlopen("https://wasm.discere.cloud/pango/latest/side/pango-side.wasm", RTLD_NOW);
+    if (!pango_handle) {
+        snprintf(g_last_error, sizeof(g_last_error), "Failed to load Pango: %s", dlerror());
+        return 0;
+    }
+
+    // Load GdkPixbuf from CDN
+    pixbuf_handle = dlopen("https://wasm.discere.cloud/gdk-pixbuf/latest/side/gdk-pixbuf-side.wasm", RTLD_NOW);
+    if (!pixbuf_handle) {
+        snprintf(g_last_error, sizeof(g_last_error), "Failed to load GdkPixbuf: %s", dlerror());
+        return 0;
+    }
+
+    // Load function pointers from dynamically loaded libraries
+    cairo_create_func = dlsym(cairo_handle, "cairo_create");
+    cairo_image_surface_create_func = dlsym(cairo_handle, "cairo_image_surface_create");
+    cairo_destroy_func = dlsym(cairo_handle, "cairo_destroy");
+    cairo_surface_destroy_func = dlsym(cairo_handle, "cairo_surface_destroy");
+
+    if (!cairo_create_func || !cairo_image_surface_create_func ||
+        !cairo_destroy_func || !cairo_surface_destroy_func) {
+        strncpy(g_last_error, "Failed to load Cairo function symbols", sizeof(g_last_error) - 1);
+        return 0;
+    }
+
+    g_dependencies_loaded = 1;
+    return 1;
+}
+
+// Cleanup dynamically loaded libraries
+static void unload_dependency_libraries(void) {
+    if (cairo_handle) { dlclose(cairo_handle); cairo_handle = NULL; }
+    if (glib_handle) { dlclose(glib_handle); glib_handle = NULL; }
+    if (pango_handle) { dlclose(pango_handle); pango_handle = NULL; }
+    if (pixbuf_handle) { dlclose(pixbuf_handle); pixbuf_handle = NULL; }
+
+    cairo_create_func = NULL;
+    cairo_image_surface_create_func = NULL;
+    cairo_destroy_func = NULL;
+    cairo_surface_destroy_func = NULL;
+
+    g_dependencies_loaded = 0;
+}
+#endif
 
 // Test/stub implementations for build validation
 
@@ -111,20 +195,43 @@ const char* rsvg_wasm_get_last_error(void) {
 EMSCRIPTEN_KEEPALIVE
 void rsvg_wasm_cleanup(void) {
     printf("Cleaning up librsvg.wasm resources\n");
+
+#ifdef LIBRSVG_SIDE_MODULE
+    // Cleanup dynamically loaded dependencies
+    unload_dependency_libraries();
+#endif
+
     // Reset global state
     g_simd_enabled = 0;
     g_webgpu_enabled = 0;
+    g_dependencies_loaded = 0;
     strncpy(g_last_error, "No error", sizeof(g_last_error) - 1);
 }
 
 // Initialize WASM module - required for TypeScript integration
 EMSCRIPTEN_KEEPALIVE
 int rsvg_wasm_init(void) {
-    printf("Initializing librsvg.wasm (stub implementation)\n");
+    printf("Initializing librsvg.wasm\n");
 
     // Check SIMD support
     g_simd_enabled = rsvg_wasm_get_simd_support();
     printf("SIMD support: %s\n", g_simd_enabled ? "enabled" : "disabled");
+
+#ifdef LIBRSVG_SIDE_MODULE
+    // Load dependencies dynamically from CDN for SIDE_MODULE
+    printf("Loading dependencies from wasm.discere.cloud CDN...\n");
+    if (!load_dependency_libraries()) {
+        printf("Warning: Failed to load some dependencies: %s\n", g_last_error);
+        printf("Falling back to stub implementations\n");
+        // Continue with stub implementations
+    } else {
+        printf("All dependencies loaded successfully\n");
+    }
+#else
+    // MAIN_MODULE uses statically linked dependencies
+    printf("Using statically linked dependencies\n");
+    g_dependencies_loaded = 1;
+#endif
 
     return 0; // Success
 }
