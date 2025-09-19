@@ -26,7 +26,7 @@ import {
   SVGUnits,
   SVGAspectRatio,
   SVGErrorCode
-} from './types.js'
+} from './types.ts'
 import type {
   LibRSVGModule,
   SVGImageInfo,
@@ -35,7 +35,7 @@ import type {
   SVGCapabilities,
   SVGLoadingOptions,
   SVGPerformanceMetrics
-} from './types.js'
+} from './types.ts'
 
 /**
  * SVG processor with WebGPU acceleration
@@ -97,7 +97,7 @@ export class LibRSVG {
     }
 
     // Initialize WASM-native SVG library (C/Rust function call)
-    const initResult = this.module.ccall('webp_wasm_init', 'number', [], [])
+    const initResult = this.module.ccall('rsvg_wasm_init', 'number', [], [])
     if (initResult !== 0) {
       throw new Error('Failed to initialize SVG WASM library')
     }
@@ -342,18 +342,81 @@ export class LibRSVG {
 
   // Private implementation methods
   private async loadModule(): Promise<LibRSVGModule> {
-    // Attempt static module loading (browsers with native WASM support)
-    if (!this.module) {
-      throw new Error('Failed to load librsvg.wasm module')
+    try {
+      const moduleFactory = await this.loadModuleFactory()
+      const wasmBinary = await this.loadWasmBinary()
+
+      // Pass wasmBinary only if successfully loaded
+      const module = await moduleFactory(wasmBinary ? { wasmBinary } : {})
+      return module as LibRSVGModule
+    } catch (error) {
+      throw new Error(`Failed to load librsvg.wasm module: ${error}`)
+    }
+  }
+
+  private async loadModuleFactory(): Promise<Function> {
+    // Deno-first development environment
+    if (typeof globalThis.Deno !== 'undefined') {
+      try {
+        const moduleFactory = (await import('../../librsvg-main.js')).default
+        return moduleFactory
+      } catch (error) {
+        console.warn('Failed to load local module factory:', error)
+      }
     }
 
-    return this.module
+    // Web/CDN runtime - try CDN locations with proper ES6 imports
+    const cdnUrls = [
+      'https://wasm.discere.cloud/librsvg/latest/main/',
+      'https://cdn.jsdelivr.net/npm/@discere-os/librsvg.wasm/dist/'
+    ]
+
+    for (const url of cdnUrls) {
+      try {
+        const moduleFactory = (await import(`${url}librsvg-main.js`)).default
+        return moduleFactory
+      } catch { continue }
+    }
+
+    throw new Error('Failed to load module factory from any source')
+  }
+
+  private async loadWasmBinary(): Promise<ArrayBuffer | undefined> {
+    // Deno-first development environment
+    if (typeof globalThis.Deno !== 'undefined') {
+      try {
+        const wasmPath = new URL('../../librsvg-main.wasm', import.meta.url).pathname
+        const wasmBuffer = await Deno.readFile(wasmPath)
+        return wasmBuffer.buffer
+      } catch (error) {
+        console.warn('Failed to load local WASM binary:', error)
+        return undefined
+      }
+    }
+
+    // Web/CDN runtime - try CDN locations
+    const cdnUrls = [
+      'https://wasm.discere.cloud/librsvg/latest/main/',
+      'https://cdn.jsdelivr.net/npm/@discere-os/librsvg.wasm/dist/'
+    ]
+
+    for (const url of cdnUrls) {
+      try {
+        const response = await fetch(`${url}librsvg-main.wasm`)
+        if (response.ok) {
+          return await response.arrayBuffer()
+        }
+      } catch { continue }
+    }
+
+    // Fallback to undefined for embedded WASM
+    return undefined
   }
 }
 
 // Export the main class and types for easy consumption
 export default LibRSVG
-export * from './types.js'
+export * from './types.ts'
 
 // Convenience function for quick SVG operations
 export async function createLibRSVG(options?: Partial<SVGLoadingOptions>): Promise<LibRSVG> {

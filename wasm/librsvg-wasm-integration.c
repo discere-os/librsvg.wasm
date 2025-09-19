@@ -119,7 +119,7 @@ void rsvg_wasm_cleanup(void) {
 
 // Initialize WASM module - required for TypeScript integration
 EMSCRIPTEN_KEEPALIVE
-int webp_wasm_init(void) {
+int rsvg_wasm_init(void) {
     printf("Initializing librsvg.wasm (stub implementation)\n");
 
     // Check SIMD support
