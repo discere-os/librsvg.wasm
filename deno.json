@@ -44,8 +44,8 @@
     "exclude": ["dist/", "build-*/", "npm/", "wasm/"]
   },
   "lint": {
-    "include": ["src/", "tests/", "demo-deno.ts", "bench/"],
-    "exclude": ["dist/", "build-*/", "npm/", "wasm/"]
+    "include": ["src/lib/", "tests/deno/", "demo-deno.ts", "bench/"],
+    "exclude": ["dist/", "build-*/", "npm/", "wasm/", "src/demo.ts", "src/benchmark.ts"]
   },
   "test": {
     "include": ["tests/deno/"],
